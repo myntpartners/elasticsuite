@@ -16,6 +16,8 @@ namespace Smile\ElasticsuiteCore\Index;
 
 use Smile\ElasticsuiteCore\Api\Index\MappingInterface;
 use Smile\ElasticsuiteCore\Api\Index\Mapping\FieldInterface;
+use Smile\ElasticsuiteCore\Api\Index\Mapping\DynamicFieldProviderInterface;
+use Smile\ElasticsuiteCore\Api\Index\Mapping\FieldFilterInterface;
 
 /**
  * Default implementation for ES mappings (Smile\ElasticsuiteCore\Api\Index\MappingInterface).
@@ -70,7 +72,6 @@ class Mapping implements MappingInterface
     private $copyFieldMap = [
         'isSearchable'         => self::DEFAULT_SEARCH_FIELD,
         'isUsedInSpellcheck'   => self::DEFAULT_SPELLING_FIELD,
-        'isUsedInAutocomplete' => self::DEFAULT_AUTOCOMPLETE_FIELD,
     ];
 
     /**
@@ -82,8 +83,12 @@ class Mapping implements MappingInterface
      */
     public function __construct($idFieldName, array $staticFields = [], array $dynamicFieldProviders = [])
     {
-        $this->fields      = $staticFields + $this->getDynamicFields($dynamicFieldProviders);
+        $this->fields      = $this->prepareFields($staticFields) + $this->getDynamicFields($dynamicFieldProviders);
         $this->idFieldName = $idFieldName;
+
+        if (!isset($this->fields[$this->idFieldName])) {
+            throw new \InvalidArgumentException("Invalid id field $this->idFieldName : field is not declared.");
+        }
     }
 
     /**
@@ -141,17 +146,105 @@ class Mapping implements MappingInterface
     }
 
     /**
+     * {@inheritDoc}
+     */
+    public function getWeightedSearchProperties(
+        $analyzer = null,
+        $defaultField = null,
+        $boost = 1,
+        FieldFilterInterface $fieldFilter = null
+    ) {
+        $weightedFields = [];
+        $fields         = $this->getFields();
+
+        if ($defaultField) {
+            $defaultSearchProperty = $this->getDefaultSearchProperty($defaultField, $analyzer);
+            $weightedFields[$defaultSearchProperty] = $boost;
+        }
+
+        if ($fieldFilter !== null) {
+            $fields = array_filter($fields, [$fieldFilter, 'filterField']);
+        }
+
+        foreach ($fields as $field) {
+            $currentAnalyzer = $analyzer;
+            $canAddField     = $defaultField === null || $field->getSearchWeight() !== 1;
+
+            if ($analyzer === null) {
+                $currentAnalyzer = $field->getDefaultSearchAnalyzer();
+                $canAddField     = $canAddField || ($currentAnalyzer !== FieldInterface::ANALYZER_STANDARD);
+            }
+
+            $property = $field->getMappingProperty($currentAnalyzer);
+
+            if ($property && $canAddField) {
+                $weightedFields[$property] = $boost * $field->getSearchWeight();
+            }
+        }
+
+        return $weightedFields;
+    }
+
+    /**
+     * Return the search property for a field present in defaultMappingFields.
+     *
+     * @throws \InvalidArgument If the field / analyzer does not exists.
+     *
+     * @param string $field    Field.
+     * @param string $analyzer Required analyzer.
+     *
+     * @return string
+     */
+    private function getDefaultSearchProperty($field = self::DEFAULT_SEARCH_FIELD, $analyzer = null)
+    {
+        if (!isset($this->defaultMappingFields[$field])) {
+            throw new \InvalidArgumentException("Unable to find field {$field}.");
+        }
+
+        $property = $field;
+
+        if ($analyzer !== null) {
+            if (!in_array($analyzer, $this->defaultMappingFields[$field])) {
+                throw new \InvalidArgumentException("Unable to find analyzer {$analyzer} for field {$field}.");
+            }
+
+            $property = sprintf("%s.%s", $field, $analyzer);
+        }
+
+        return $property;
+    }
+
+    /**
+     * Prepare the array of fields to be added to the mapping. Mostly rekey the array.
+     *
+     * @param array $fields Fields to be prepared.
+     *
+     * @return FieldInterface[]
+     */
+    private function prepareFields(array $fields)
+    {
+        $preparedFields = [];
+
+        foreach ($fields as $field) {
+            $preparedFields[$field->getName()] = $field;
+        }
+
+        return $preparedFields;
+    }
+
+    /**
      * Retrieve the fields provided by differents providers.
      *
      * @param DynamicFieldProviderInterface[] $dynamicFieldProviders List of dynamic fields providers
      *
-     * @return array
+     * @return FieldInterface[]
      */
     private function getDynamicFields(array $dynamicFieldProviders)
     {
         $fields = [];
+
         foreach ($dynamicFieldProviders as $dynamicFieldProvider) {
-            $fields += $dynamicFieldProvider->getFields();
+            $fields += $this->prepareFields($dynamicFieldProvider->getFields());
         }
 
         return $fields;
@@ -221,10 +314,7 @@ class Mapping implements MappingInterface
         } elseif (strstr($fieldName, '.')) {
             $fieldPathArray = explode('.', $fieldName);
             if (!isset($properties[current($fieldPathArray)])) {
-                $properties[current($fieldPathArray)] = [
-                    'type' => FieldInterface::FIELD_TYPE_OBJECT,
-                    'properties' => [],
-                ];
+                $properties[current($fieldPathArray)] = ['type' => FieldInterface::FIELD_TYPE_OBJECT, 'properties' => []];
             }
             $fieldRoot = &$properties[current($fieldPathArray)]['properties'];
             $fieldName = end($fieldPathArray);

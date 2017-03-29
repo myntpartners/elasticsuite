@@ -90,13 +90,6 @@ interface FieldInterface
     public function isUsedInSpellcheck();
 
     /**
-     * Is the field used for autocomplete.
-     *
-     * @return boolean
-     */
-    public function isUsedInAutocomplete();
-
-    /**
      * Weight of the fields in search.
      *
      * @return integer
@@ -140,4 +133,12 @@ interface FieldInterface
      * @return string|null
      */
     public function getMappingProperty($analyzer = self::ANALYZER_UNTOUCHED);
+
+
+    /**
+     * Return the search analyzer used by default for fulltext searches.
+     *
+     * @return string
+     */
+    public function getDefaultSearchAnalyzer();
 }

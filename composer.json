@@ -44,13 +44,7 @@
         "smile/module-elasticsuite-virtual-category": "self.version"
     },
     "require-dev": {
-        "phpunit/phpunit": "*",
-        "phpmd/phpmd": "*",
-        "pdepend/pdepend": "*",
-        "sjparkinson/static-review": "*",
-        "fabpot/php-cs-fixer": "*",
-        "lusitanian/oauth": "*",
-        "squizlabs/php_codesniffer": "*"
+        "smile/magento2-smilelab-quality-suite": "1.0.0"
     },
     "autoload": {
         "files": [
@@ -81,5 +75,7 @@
                 "lib/web/fonts/elasticsuite"
             ]
         ]
-    }
+    },
+   "minimum-stability": "dev",
+   "prefer-stable": true
 }
